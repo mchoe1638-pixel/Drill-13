@@ -22,9 +22,13 @@ GROUND_Y = 54
 SHEET_BORDER = 1
 SPRITE_SIZE = 100
 SPRITE_FOOT_GAP = 13  # 칸 바닥에서 발바닥까지 빈 공간
-# 서 있는 모습이 들어 있는 줄 (줄 번호는 맨 아랫줄이 0)
+SPRITE_COLUMNS = 8  # 한 줄에 들어 있는 프레임 수
+# 달리는 모습과 서 있는 모습이 들어 있는 줄 (줄 번호는 맨 아랫줄이 0)
+ROW_RUN_LEFT = 0
+ROW_RUN_RIGHT = 1
 ROW_IDLE_LEFT = 2
 ROW_IDLE_RIGHT = 3
+RUN_FPS = 16  # 달리는 그림이 바뀌는 속도(초당 프레임 수)
 PRONE_LIFT = 15  # 눕힌 그림의 중심이 땅에서 떠 있어야 하는 높이
 
 # 플레이어 이동
@@ -139,6 +143,7 @@ class Player:
         self.is_prone = False  # 엎드려 있는가
         self.left_held = False  # 왼쪽 방향키를 누르고 있는가
         self.right_held = False  # 오른쪽 방향키를 누르고 있는가
+        self.run_time = 0.0  # 달리기 시작한 뒤 흐른 시간(초)
 
     @property
     def held_dir(self) -> int:
@@ -186,12 +191,26 @@ class Player:
         x = self.x + self.move_dir * PLAYER_SPEED * dt
         # 화면 밖으로 나가지 않게 막음
         self.x = max(PLAYER_HALF_W, min(x, CANVAS_W - PLAYER_HALF_W))
+        # 달리는 동안만 시간을 쌓고, 멈추면 처음 모습부터 다시 시작
+        self.run_time = self.run_time + dt if self.move_dir != 0 else 0.0
+
+    def _sprite_clip(self) -> tuple[int, int, int, int]:
+        """지금 모습이 들어 있는 시트 영역 (왼쪽, 아래, 너비, 높이)"""
+        is_right = self.face_dir > 0
+        if self.move_dir != 0:
+            # 달리는 중: 시간에 따라 프레임을 돌려 가며 보여줌
+            row = ROW_RUN_RIGHT if is_right else ROW_RUN_LEFT
+            column = int(self.run_time * RUN_FPS) % SPRITE_COLUMNS
+        else:
+            # 서 있는 모습의 첫 프레임 (엎드릴 때도 이 그림을 눕혀서 씀)
+            row = ROW_IDLE_RIGHT if is_right else ROW_IDLE_LEFT
+            column = 0
+        left = SHEET_BORDER + column * SPRITE_SIZE
+        bottom = SHEET_BORDER + row * SPRITE_SIZE
+        return left, bottom, SPRITE_SIZE, SPRITE_SIZE
 
     def draw(self) -> None:
-        # 서 있는 모습의 첫 프레임 (바라보는 방향에 맞는 줄)
-        row = ROW_IDLE_RIGHT if self.face_dir > 0 else ROW_IDLE_LEFT
-        bottom = SHEET_BORDER + row * SPRITE_SIZE
-        clip = (SHEET_BORDER, bottom, SPRITE_SIZE, SPRITE_SIZE)  # 왼쪽, 아래, 너비, 높이
+        clip = self._sprite_clip()
         if self.is_prone:
             # 90도 눕혀서 엎드린 모습으로 그림 (머리가 바라보는 쪽)
             angle = -self.face_dir * math.pi / 2
