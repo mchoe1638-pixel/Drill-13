@@ -11,6 +11,7 @@ CANVAS_H = 600
 # 에셋 파일 이름
 GROUND_IMAGE = "grass.png"
 PLAYER_IMAGE = "animation_sheet.png"
+INVENTORY_IMAGE = "item_select.png"
 
 # 땅 윗면 높이 (캐릭터의 발과 공이 닿는 곳)
 GROUND_Y = 54
@@ -34,12 +35,22 @@ BALL_BIG = 2
 BALL_IMAGES = {BALL_SMALL: "ball21x21.png", BALL_BIG: "ball41x41.png"}
 BALL_DIAMETER = {BALL_SMALL: 21, BALL_BIG: 41}  # 공 지름(픽셀)
 BALL_SPEED = 400  # 던진 공의 가로 속도(픽셀/초)
+# 인벤토리가 열려 있을 때 이 키를 누르면 해당 크기의 공이 선택된다
+BALL_KEYS = {SDLK_1: BALL_SMALL, SDLK_2: BALL_BIG}
+
+# 공 물리
+GRAVITY = 900  # 중력 가속도(픽셀/초²)
+BOUNCE_RESTITUTION = 0.7  # 튕긴 뒤에 남는 속도 비율
+MIN_BOUNCE_SPEED = 40  # 이보다 느리게 떨어지면 더 안 튀고 굴러감(픽셀/초)
 
 # 공이 나가는 위치: 몸 중심에서 앞쪽으로 떨어진 거리, 땅에서 올라간 높이
 THROW_FRONT_STAND = 35
 THROW_HEIGHT_STAND = 45
 THROW_FRONT_PRONE = 50
 THROW_HEIGHT_PRONE = 22
+
+# 인벤토리 창
+INVENTORY_MARGIN = 20  # 화면 왼쪽 끝에서 떨어진 거리
 
 # 프레임 끝에서 쉬는 시간(초)
 FRAME_DELAY = 0.01
@@ -68,16 +79,33 @@ class Ball:
         self.x = x
         self.y = y
         self.vx = vx  # 가로 속도(픽셀/초)
+        self.vy = 0.0  # 세로 속도(픽셀/초). 처음엔 수평으로 던진다
+        self.angle = 0.0  # 굴러가는 모습을 위한 회전각(라디안)
         self.radius = BALL_DIAMETER[size] / 2
 
     def update(self, dt: float) -> None:
+        self.vy -= GRAVITY * dt  # 중력
         self.x += self.vx * dt
+        self.y += self.vy * dt
+        self.angle -= self.vx * dt / self.radius  # 이동한 거리만큼 굴러가듯 회전
+        self._bounce_on_floor()
+
+    def _bounce_on_floor(self) -> None:
+        """땅에 닿으면 튕기고, 충분히 느려지면 땅 위를 굴러간다"""
+        floor_y = GROUND_Y + self.radius  # 공 중심이 내려갈 수 있는 가장 낮은 곳
+        if self.y > floor_y:
+            return
+        self.y = floor_y
+        if self.vy < -MIN_BOUNCE_SPEED:
+            self.vy = -self.vy * BOUNCE_RESTITUTION  # 튕김
+        else:
+            self.vy = 0.0  # 굴러감
 
     def is_off_screen(self) -> bool:
         return self.x + self.radius < 0 or self.x - self.radius > CANVAS_W
 
     def draw(self) -> None:
-        self.image.draw(self.x, self.y)
+        self.image.composite_draw(self.angle, "", self.x, self.y)
 
 
 class Player:
@@ -91,7 +119,6 @@ class Player:
         self.is_prone = False  # 엎드려 있는가
         self.left_held = False  # 왼쪽 방향키를 누르고 있는가
         self.right_held = False  # 오른쪽 방향키를 누르고 있는가
-        self.ball_size = BALL_SMALL  # 던질 공의 크기
 
     @property
     def held_dir(self) -> int:
@@ -125,15 +152,15 @@ class Player:
         if self.held_dir != 0:  # 한쪽 키만 남아 있으면 그쪽을 바라봄
             self.face_dir = self.held_dir
 
-    def throw_ball(self) -> Ball:
-        """바라보는 방향으로 공을 던진다. 엎드려 있으면 더 낮은 곳에서 나간다"""
+    def throw_ball(self, size: int) -> Ball:
+        """바라보는 방향으로 size 크기의 공을 던진다. 엎드려 있으면 더 낮은 곳에서 나간다"""
         if self.is_prone:
             front, height = THROW_FRONT_PRONE, THROW_HEIGHT_PRONE
         else:
             front, height = THROW_FRONT_STAND, THROW_HEIGHT_STAND
         x = self.x + self.face_dir * front
         y = self.y + height
-        return Ball(x, y, self.face_dir * BALL_SPEED, self.ball_size)
+        return Ball(x, y, self.face_dir * BALL_SPEED, size)
 
     def update(self, dt: float) -> None:
         x = self.x + self.move_dir * PLAYER_SPEED * dt
@@ -157,9 +184,35 @@ class Player:
             self.image.clip_draw(*clip, self.x, y)
 
 
+class Inventory:
+    """E키로 여닫는 공 선택 창. 열려 있어도 게임은 멈추지 않는다"""
+
+    def __init__(self) -> None:
+        self.image = load_image(INVENTORY_IMAGE)
+        self.is_open = False
+        self.selected = BALL_SMALL  # 지금 선택된 공 크기
+
+    def handle_event(self, event: Event) -> None:
+        """E로 창을 여닫고, 열려 있을 때만 1/2 키로 공을 고른다"""
+        if event.type != SDL_KEYDOWN:
+            return
+        if event.key == SDLK_e:
+            self.is_open = not self.is_open
+        elif self.is_open and event.key in BALL_KEYS:
+            self.selected = BALL_KEYS[event.key]
+
+    def draw(self) -> None:
+        if not self.is_open:
+            return
+        # 화면 왼쪽, 세로 가운데에 놓음
+        x = INVENTORY_MARGIN + self.image.w // 2
+        self.image.draw(x, CANVAS_H // 2)
+
+
 # reset_world()에서 만드는 게임 객체
 ground: Ground
 player: Player
+inventory: Inventory
 balls: list[Ball]  # 지금 날아다니는 공들
 
 
@@ -171,16 +224,18 @@ def handle_events() -> bool:
         if event.type == SDL_KEYDOWN and event.key == SDLK_ESCAPE:
             return False
         if event.type == SDL_KEYDOWN and event.key == SDLK_z:
-            balls.append(player.throw_ball())
+            balls.append(player.throw_ball(inventory.selected))
+        inventory.handle_event(event)
         player.handle_event(event)
     return True
 
 
 def reset_world() -> None:
     """게임 객체를 만든다 (이미지를 읽어야 해서 open_canvas() 뒤에 호출)"""
-    global ground, player, balls
+    global ground, player, inventory, balls
     ground = Ground()
     player = Player()
+    inventory = Inventory()
     balls = []
 
 
@@ -200,6 +255,7 @@ def render_world() -> None:
     player.draw()
     for ball in balls:
         ball.draw()
+    inventory.draw()  # 맨 위에 그림
     update_canvas()
 
 
