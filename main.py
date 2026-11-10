@@ -17,7 +17,13 @@ GROUND_Y = 54
 SHEET_BORDER = 1
 SPRITE_SIZE = 100
 SPRITE_FOOT_GAP = 13  # 칸 바닥에서 발바닥까지 빈 공간
-ROW_IDLE_RIGHT = 3  # 서 있는 모습(오른쪽). 줄 번호는 맨 아랫줄이 0
+# 서 있는 모습이 들어 있는 줄 (줄 번호는 맨 아랫줄이 0)
+ROW_IDLE_LEFT = 2
+ROW_IDLE_RIGHT = 3
+
+# 플레이어 이동
+PLAYER_SPEED = 300  # 초당 이동 거리(픽셀)
+PLAYER_HALF_W = 20  # 화면 밖으로 나가지 않게 하는 몸 반폭
 
 # 프레임 끝에서 쉬는 시간(초)
 FRAME_DELAY = 0.01
@@ -41,11 +47,43 @@ class Player:
         self.image = load_image(PLAYER_IMAGE)
         self.x = CANVAS_W // 2
         self.y = GROUND_Y  # 발바닥 위치
+        self.face_dir = 1  # 바라보는 방향 (1: 오른쪽, -1: 왼쪽)
+        self.left_held = False  # 왼쪽 방향키를 누르고 있는가
+        self.right_held = False  # 오른쪽 방향키를 누르고 있는가
+
+    @property
+    def move_dir(self) -> int:
+        """이동 방향 (-1: 왼쪽, 0: 멈춤, 1: 오른쪽)"""
+        if self.left_held and self.right_held:
+            return self.face_dir  # 둘 다 누르면 나중에 누른 쪽으로
+        return int(self.right_held) - int(self.left_held)
+
+    def handle_event(self, event: Event) -> None:
+        """방향키 눌림/뗌을 기록하고 바라보는 방향을 정한다"""
+        if event.type not in (SDL_KEYDOWN, SDL_KEYUP):
+            return
+        is_down = event.type == SDL_KEYDOWN
+        if event.key == SDLK_LEFT:
+            self.left_held = is_down
+            if is_down:
+                self.face_dir = -1
+        elif event.key == SDLK_RIGHT:
+            self.right_held = is_down
+            if is_down:
+                self.face_dir = 1
+        if self.move_dir != 0:  # 한쪽 키만 남아 있으면 그쪽을 바라봄
+            self.face_dir = self.move_dir
+
+    def update(self, dt: float) -> None:
+        x = self.x + self.move_dir * PLAYER_SPEED * dt
+        # 화면 밖으로 나가지 않게 막음
+        self.x = max(PLAYER_HALF_W, min(x, CANVAS_W - PLAYER_HALF_W))
 
     def draw(self) -> None:
-        # 서 있는 모습(오른쪽을 봄)의 첫 프레임
+        # 서 있는 모습의 첫 프레임 (바라보는 방향에 맞는 줄)
+        row = ROW_IDLE_RIGHT if self.face_dir > 0 else ROW_IDLE_LEFT
         left = SHEET_BORDER
-        bottom = SHEET_BORDER + ROW_IDLE_RIGHT * SPRITE_SIZE
+        bottom = SHEET_BORDER + row * SPRITE_SIZE
         center_y = self.y + SPRITE_SIZE // 2 - SPRITE_FOOT_GAP  # 발바닥 -> 칸 중심
         self.image.clip_draw(left, bottom, SPRITE_SIZE, SPRITE_SIZE, self.x, center_y)
 
@@ -62,6 +100,7 @@ def handle_events() -> bool:
             return False
         if event.type == SDL_KEYDOWN and event.key == SDLK_ESCAPE:
             return False
+        player.handle_event(event)
     return True
 
 
@@ -73,7 +112,8 @@ def reset_world() -> None:
 
 
 def update_world(dt: float) -> None:
-    """모든 객체를 dt초만큼 갱신한다 (아직 움직이는 객체 없음)"""
+    """모든 객체를 dt초만큼 갱신한다"""
+    player.update(dt)
 
 
 def render_world() -> None:
