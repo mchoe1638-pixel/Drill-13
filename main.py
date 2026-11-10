@@ -29,14 +29,15 @@ PRONE_LIFT = 15  # 눕힌 그림의 중심이 땅에서 떠 있어야 하는 높
 PLAYER_SPEED = 300  # 초당 이동 거리(픽셀)
 PLAYER_HALF_W = 20  # 화면 밖으로 나가지 않게 하는 몸 반폭
 
-# 공 크기 (Ball의 size 값)
+# 공 선택값: 인벤토리의 숫자키 번호와 같다. 작은/큰 공은 Ball의 size로도 쓴다
+BALL_NONE = 0  # 공 없음 (Z를 눌러도 던지지 않음)
 BALL_SMALL = 1
 BALL_BIG = 2
 BALL_IMAGES = {BALL_SMALL: "ball21x21.png", BALL_BIG: "ball41x41.png"}
 BALL_DIAMETER = {BALL_SMALL: 21, BALL_BIG: 41}  # 공 지름(픽셀)
 BALL_SPEED = 400  # 던진 공의 가로 속도(픽셀/초)
-# 인벤토리가 열려 있을 때 이 키를 누르면 해당 크기의 공이 선택된다
-BALL_KEYS = {SDLK_1: BALL_SMALL, SDLK_2: BALL_BIG}
+# 인벤토리가 열려 있을 때 이 키를 누르면 해당 공이 선택된다
+SELECT_KEYS = {SDLK_0: BALL_NONE, SDLK_1: BALL_SMALL, SDLK_2: BALL_BIG}
 
 # 공 물리
 GRAVITY = 900  # 중력 가속도(픽셀/초²)
@@ -190,16 +191,21 @@ class Inventory:
     def __init__(self) -> None:
         self.image = load_image(INVENTORY_IMAGE)
         self.is_open = False
-        self.selected = BALL_SMALL  # 지금 선택된 공 크기
+        self.selected = BALL_SMALL  # 지금 선택된 공 (처음엔 작은 공)
+
+    @property
+    def has_ball(self) -> bool:
+        """던질 공이 있는가 (0번으로 비우면 False)"""
+        return self.selected != BALL_NONE
 
     def handle_event(self, event: Event) -> None:
-        """E로 창을 여닫고, 열려 있을 때만 1/2 키로 공을 고른다"""
+        """E로 창을 여닫고, 열려 있을 때만 0/1/2 키로 공을 고른다"""
         if event.type != SDL_KEYDOWN:
             return
         if event.key == SDLK_e:
             self.is_open = not self.is_open
-        elif self.is_open and event.key in BALL_KEYS:
-            self.selected = BALL_KEYS[event.key]
+        elif self.is_open and event.key in SELECT_KEYS:
+            self.selected = SELECT_KEYS[event.key]
 
     def draw(self) -> None:
         if not self.is_open:
@@ -216,6 +222,12 @@ inventory: Inventory
 balls: list[Ball]  # 지금 날아다니는 공들
 
 
+def throw_selected_ball() -> None:
+    """선택된 공을 던진다. 공을 비운 상태(0번)면 아무 일도 없다"""
+    if inventory.has_ball:
+        balls.append(player.throw_ball(inventory.selected))
+
+
 def handle_events() -> bool:
     """이벤트를 처리한다. 계속 실행하면 True, 종료하면 False"""
     for event in get_events():
@@ -224,7 +236,7 @@ def handle_events() -> bool:
         if event.type == SDL_KEYDOWN and event.key == SDLK_ESCAPE:
             return False
         if event.type == SDL_KEYDOWN and event.key == SDLK_z:
-            balls.append(player.throw_ball(inventory.selected))
+            throw_selected_ball()
         inventory.handle_event(event)
         player.handle_event(event)
     return True
