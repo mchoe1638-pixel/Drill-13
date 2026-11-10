@@ -8,6 +8,16 @@ CANVAS_H = 600
 
 # 에셋 파일 이름
 GROUND_IMAGE = "grass.png"
+PLAYER_IMAGE = "animation_sheet.png"
+
+# 땅 윗면 높이 (캐릭터의 발과 공이 닿는 곳)
+GROUND_Y = 54
+
+# 플레이어 스프라이트 시트: 100x100 칸, 가장자리에 투명 테두리 1px
+SHEET_BORDER = 1
+SPRITE_SIZE = 100
+SPRITE_FOOT_GAP = 13  # 칸 바닥에서 발바닥까지 빈 공간
+ROW_IDLE_RIGHT = 3  # 서 있는 모습(오른쪽). 줄 번호는 맨 아랫줄이 0
 
 # 프레임 끝에서 쉬는 시간(초)
 FRAME_DELAY = 0.01
@@ -24,7 +34,25 @@ class Ground:
         self.image.draw(CANVAS_W // 2, self.image.h // 2)
 
 
-ground: Ground  # reset_world()에서 만든다
+class Player:
+    """초록 모자를 쓴 플레이어"""
+
+    def __init__(self) -> None:
+        self.image = load_image(PLAYER_IMAGE)
+        self.x = CANVAS_W // 2
+        self.y = GROUND_Y  # 발바닥 위치
+
+    def draw(self) -> None:
+        # 서 있는 모습(오른쪽을 봄)의 첫 프레임
+        left = SHEET_BORDER
+        bottom = SHEET_BORDER + ROW_IDLE_RIGHT * SPRITE_SIZE
+        center_y = self.y + SPRITE_SIZE // 2 - SPRITE_FOOT_GAP  # 발바닥 -> 칸 중심
+        self.image.clip_draw(left, bottom, SPRITE_SIZE, SPRITE_SIZE, self.x, center_y)
+
+
+# reset_world()에서 만드는 게임 객체
+ground: Ground
+player: Player
 
 
 def handle_events() -> bool:
@@ -39,8 +67,9 @@ def handle_events() -> bool:
 
 def reset_world() -> None:
     """게임 객체를 만든다 (이미지를 읽어야 해서 open_canvas() 뒤에 호출)"""
-    global ground
+    global ground, player
     ground = Ground()
+    player = Player()
 
 
 def update_world(dt: float) -> None:
@@ -50,6 +79,7 @@ def update_world(dt: float) -> None:
 def render_world() -> None:
     clear_canvas()  # 연한 회색 격자 배경까지 같이 그려짐
     ground.draw()
+    player.draw()
     update_canvas()
 
 
