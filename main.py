@@ -12,6 +12,8 @@ CANVAS_H = 600
 GROUND_IMAGE = "grass.png"
 PLAYER_IMAGE = "animation_sheet.png"
 INVENTORY_IMAGE = "item_select.png"
+CREDIT_IMAGE = "tuk_credit.png"
+TITLE_IMAGE = "title.png"
 
 # 땅 윗면 높이 (캐릭터의 발과 공이 닿는 곳)
 GROUND_Y = 54
@@ -53,6 +55,12 @@ THROW_HEIGHT_PRONE = 22
 # 인벤토리 창
 INVENTORY_MARGIN = 20  # 화면 왼쪽 끝에서 떨어진 거리
 
+# 화면(장면) 종류
+SCENE_CREDIT = 0  # 맨 처음 나오는 학교 크레딧
+SCENE_TITLE = 1  # 타이틀 (Space로 게임 시작, ESC로 종료)
+SCENE_PLAY = 2  # 게임 중 (ESC로 타이틀로 돌아감)
+CREDIT_SECONDS = 2.0  # 크레딧을 보여주는 시간(초)
+
 # 프레임 끝에서 쉬는 시간(초)
 FRAME_DELAY = 0.01
 
@@ -66,6 +74,17 @@ class Ground:
     def draw(self) -> None:
         # 가로 중앙, 화면 맨 아래에 붙여서 그림
         self.image.draw(CANVAS_W // 2, self.image.h // 2)
+
+
+class Screen:
+    """화면 전체를 덮는 그림 (크레딧, 타이틀)"""
+
+    def __init__(self, filename: str) -> None:
+        self.image = load_image(filename)
+
+    def draw(self) -> None:
+        # 캔버스 한가운데에 원래 크기로 그림 (조금 크면 가장자리가 잘림)
+        self.image.draw(CANVAS_W // 2, CANVAS_H // 2)
 
 
 class Ball:
@@ -215,11 +234,55 @@ class Inventory:
         self.image.draw(x, CANVAS_H // 2)
 
 
+# 지금 보여주는 화면과, 그 화면으로 바뀐 뒤 흐른 시간(초)
+scene = SCENE_CREDIT
+scene_time = 0.0
+running = True  # False가 되면 게임 루프가 끝난다
+
+# load_screens()에서 만드는 전체 화면 그림
+credit_screen: Screen
+title_screen: Screen
+
 # reset_world()에서 만드는 게임 객체
 ground: Ground
 player: Player
 inventory: Inventory
 balls: list[Ball]  # 지금 날아다니는 공들
+
+
+def quit_game() -> None:
+    """게임 루프를 끝낸다"""
+    global running
+    running = False
+
+
+def change_scene(new_scene: int) -> None:
+    """화면을 바꾸고, 그 화면에서 흐른 시간을 0으로 되돌린다"""
+    global scene, scene_time
+    scene = new_scene
+    scene_time = 0.0
+
+
+def load_screens() -> None:
+    """크레딧/타이틀 그림을 읽는다 (그림을 읽어야 해서 open_canvas() 뒤에 호출)"""
+    global credit_screen, title_screen
+    credit_screen = Screen(CREDIT_IMAGE)
+    title_screen = Screen(TITLE_IMAGE)
+
+
+def reset_world() -> None:
+    """게임 객체를 새로 만든다 (그림을 읽어야 해서 open_canvas() 뒤에 호출)"""
+    global ground, player, inventory, balls
+    ground = Ground()
+    player = Player()
+    inventory = Inventory()
+    balls = []
+
+
+def start_game() -> None:
+    """처음부터 새 게임을 만들고 게임 화면으로 넘어간다"""
+    reset_world()
+    change_scene(SCENE_PLAY)
 
 
 def throw_selected_ball() -> None:
@@ -228,31 +291,40 @@ def throw_selected_ball() -> None:
         balls.append(player.throw_ball(inventory.selected))
 
 
-def handle_events() -> bool:
-    """이벤트를 처리한다. 계속 실행하면 True, 종료하면 False"""
+def handle_title_event(event: Event) -> None:
+    """타이틀 화면: Space는 게임 시작, ESC는 종료"""
+    if event.type != SDL_KEYDOWN:
+        return
+    if event.key == SDLK_SPACE:
+        start_game()
+    elif event.key == SDLK_ESCAPE:
+        quit_game()
+
+
+def handle_play_event(event: Event) -> None:
+    """게임 화면: ESC는 타이틀로 돌아가기, 나머지는 게임 객체가 처리"""
+    if event.type == SDL_KEYDOWN and event.key == SDLK_ESCAPE:
+        change_scene(SCENE_TITLE)
+        return
+    if event.type == SDL_KEYDOWN and event.key == SDLK_z:
+        throw_selected_ball()
+    inventory.handle_event(event)
+    player.handle_event(event)
+
+
+def handle_events() -> None:
+    """이벤트를 지금 화면에 맞게 처리한다 (크레딧 화면은 키 입력을 무시)"""
     for event in get_events():
-        if event.type == SDL_QUIT:  # 창 닫기 버튼
-            return False
-        if event.type == SDL_KEYDOWN and event.key == SDLK_ESCAPE:
-            return False
-        if event.type == SDL_KEYDOWN and event.key == SDLK_z:
-            throw_selected_ball()
-        inventory.handle_event(event)
-        player.handle_event(event)
-    return True
-
-
-def reset_world() -> None:
-    """게임 객체를 만든다 (이미지를 읽어야 해서 open_canvas() 뒤에 호출)"""
-    global ground, player, inventory, balls
-    ground = Ground()
-    player = Player()
-    inventory = Inventory()
-    balls = []
+        if event.type == SDL_QUIT:  # 창 닫기 버튼은 어느 화면에서나 종료
+            quit_game()
+        elif scene == SCENE_TITLE:
+            handle_title_event(event)
+        elif scene == SCENE_PLAY:
+            handle_play_event(event)
 
 
 def update_world(dt: float) -> None:
-    """모든 객체를 dt초만큼 갱신한다"""
+    """모든 게임 객체를 dt초만큼 갱신한다"""
     global balls
     player.update(dt)
     for ball in balls:
@@ -261,30 +333,49 @@ def update_world(dt: float) -> None:
     balls = [ball for ball in balls if not ball.is_off_screen()]
 
 
+def update_scene(dt: float) -> None:
+    """지금 화면을 dt초만큼 갱신한다"""
+    global scene_time
+    scene_time += dt
+    if scene == SCENE_CREDIT and scene_time >= CREDIT_SECONDS:
+        change_scene(SCENE_TITLE)  # 크레딧을 충분히 보여줬으면 타이틀로
+    elif scene == SCENE_PLAY:
+        update_world(dt)
+
+
 def render_world() -> None:
-    clear_canvas()  # 연한 회색 격자 배경까지 같이 그려짐
+    """게임 객체를 그린다"""
     ground.draw()
     player.draw()
     for ball in balls:
         ball.draw()
     inventory.draw()  # 맨 위에 그림
+
+
+def render_scene() -> None:
+    clear_canvas()  # 연한 회색 격자 배경까지 같이 그려짐
+    if scene == SCENE_CREDIT:
+        credit_screen.draw()
+    elif scene == SCENE_TITLE:
+        title_screen.draw()
+    else:
+        render_world()
     update_canvas()
 
 
 def main() -> None:
     open_canvas(CANVAS_W, CANVAS_H)
-    reset_world()
+    load_screens()
 
-    running = True
     prev_time = get_time()
     while running:
         now = get_time()
         dt = now - prev_time  # 지난 프레임 이후 흐른 시간(초)
         prev_time = now
 
-        running = handle_events()
-        update_world(dt)
-        render_world()
+        handle_events()
+        update_scene(dt)
+        render_scene()
         delay(FRAME_DELAY)
 
     close_canvas()
